@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expense Categorizer & Financial Report</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.9.359/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1, h2, h3 {
+            color: #333;
+        }
+        #dropZone {
+            border: 2px dashed #ccc;
+            border-radius: 20px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            background-color: #f8f8f8;
+            transition: background-color 0.3s;
+        }
+        #dropZone.dragover {
+            background-color: #e0e0e0;
+        }
+        #fileList {
+            margin-bottom: 20px;
+        }
+        .tab-container {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            background-color: #f0f0f0;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .tab.active {
+            background-color: #ffffff;
+            border-bottom: 2px solid #007bff;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        .chart-container {
+            margin: 20px 0;
+            height: 400px;
+        }
+        .tips {
+            background-color: #e6f3ff;
+            border-left: 4px solid #007bff;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        #loading {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .summary-card {
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .summary-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+
+    .summary-title {
+        font-size: 1.5em;
+        font-weight: bold;
+        color: #007bff;
+    }
+
+    .summary-date {
+        font-size: 0.9em;
+        color: #6c757d;
+    }
+
+    .summary-content {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+    }
+
+    .summary-item {
+        flex: 1 1 200px;
+        background-color: white;
+        border-radius: 8px;
+        padding: 15px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .summary-item-title {
+        font-size: 1.1em;
+        font-weight: bold;
+        margin-bottom: 10px;
+        color: #495057;
+    }
+
+    .summary-item-value {
+        font-size: 1.8em;
+        font-weight: bold;
+        color: #28a745;
+    }
+
+    .summary-item-value.warning {
+        color: #ffc107;
+    }
+
+    .summary-item-value.danger {
+        color: #dc3545;
+    }
+
+    .progress-bar {
+        width: 100%;
+        height: 10px;
+        background-color: #e9ecef;
+        border-radius: 5px;
+        overflow: hidden;
+        margin-top: 10px;
+    }
+
+    .progress-bar-fill {
+        height: 100%;
+        background-color: #28a745;
+        transition: width 0.5s ease-in-out;
+    }
+
+    .top-expenses {
+        margin-top: 20px;
+    }
+
+    .top-expense-item {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 5px;
+    }
+
+    .expense-category {
+        font-weight: bold;
+    }
+
+    .expense-amount {
+        color: #dc3545;
+    }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Expense Categorizer & Financial Report</h1>
+        <div id="dropZone">
+            <p>Drag and drop PDF files here or click to select files</p>
+            <input type="file" id="fileInput" accept=".pdf" multiple style="display: none;">
+        </div>
+        <div id="fileList"></div>
+        <div id="loading">Processing... Please wait.</div>
+        <div class="tab-container">
+            <button class="tab active" data-tab="summary">Summary</button>
+            <button class="tab" data-tab="charts">Charts</button>
+        </div>
+        <div id="summary" class="tab-content active"></div>
+        <div id="charts" class="tab-content"></div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const summaryDiv = document.getElementById('summary');
+        const chartsDiv = document.getElementById('charts');
+        const loadingDiv = document.getElementById('loading');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', handleFiles);
+        fileInput.addEventListener('change', handleFiles);
+
+        // Tab functionality
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                const tabContent = document.getElementById(tab.dataset.tab);
+                tabContent.classList.add('active');
+            });
+        });
+
+        function renderCharts() {
+            chartsDiv.innerHTML = ''; // Clear previous charts
+            results.forEach((result, index) => {
+                const { categories } = parseReport(result.report);
+                if (Object.keys(categories).length > 0) {
+                    const chartContainer = document.createElement('div');
+                    chartContainer.classList.add('chart-container');
+                    chartsDiv.appendChild(chartContainer);
+
+                    const canvas = document.createElement('canvas');
+                    chartContainer.appendChild(canvas);
+
+                    new Chart(canvas, {
+                        type: 'pie',
+                        data: {
+                            labels: Object.keys(categories),
+                            datasets: [{
+                                data: Object.values(categories),
+                                backgroundColor: [
+                                    '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40',
+                                    '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'
+                                ]
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: 'right',
+                                },
+                                title: {
+                                    display: true,
+                                    text: `Expenses by Category - ${result.filename}`
+                                }
+                            }
+                        }
+                    });
+                } else {
+                    chartsDiv.innerHTML += `<p>No chart data available for ${result.filename}</p>`;
+                }
+            });
+        }
+
+        async function handleFiles(event) {
+            event.preventDefault();
+            dropZone.classList.remove('dragover');
+            const files = event.dataTransfer ? event.dataTransfer.files : event.target.files;
+            await processFiles(files);
+        }
+
+        async function processFiles(files) {
+            fileList.innerHTML = '<h3>Selected Files:</h3>';
+            summaryDiv.innerHTML = '';
+            chartsDiv.innerHTML = '';
+            loadingDiv.style.display = 'block';
+            const results = [];
+
+            for (const file of files) {
+                if (file.type === 'application/pdf') {
+                    fileList.innerHTML += `<p>${file.name}</p>`;
+                    try {
+                        const text = await extractTextFromPDF(file);
+                        const creditLimit = extractCreditLimit(text);
+                        const report = await generateFinancialReport(text, creditLimit);
+                        results.push({ filename: file.name, report, creditLimit });
+                    } catch (error) {
+                        console.error("Error processing file:", file.name, error);
+                        fileList.innerHTML += `<p style="color: red;">Failed to process ${file.name}: ${error.message}</p>`;
+                    }
+                } else {
+                    fileList.innerHTML += `<p style="color: red;">${file.name} is not a PDF file.</p>`;
+                }
+            }
+
+            loadingDiv.style.display = 'none';
+            displayResults(results);
+        }
+
+        async function extractTextFromPDF(file) {
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                let text = '';
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const content = await page.getTextContent();
+                    text += content.items.map(item => item.str).join(' ');
+                }
+                console.log("Extracted PDF text:", text);
+                return text;
+            } catch (error) {
+                console.error("Failed to extract text from PDF:", error);
+                throw new Error("Failed to extract text from PDF.");
+            }
+        }
+
+        function extractCreditLimit(text) {
+            const creditLimitMatch = text.match(/credit limit:?\s*\$?([\d,]+(?:\.\d{2})?)/i);
+            console.log("Credit limit match:", creditLimitMatch);
+            if (creditLimitMatch) {
+                return parseFloat(creditLimitMatch[1].replace(/,/g, ''));
+            }
+            return null;
+        }
+
+        async function generateFinancialReport(text, creditLimit) {
+    try {
+        const response = await fetch('http://localhost:3000/generate-report', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ text })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.text();
+            throw new Error(`API request failed with status ${response.status}: ${errorData}`);
+        }
+
+        const data = await response.json();
+        console.log("API Response:", data);
+        console.log("Report Content:", data.choices[0].message.content);
+        return data.choices[0].message.content;
+    } catch (error) {
+        console.error("Error generating financial report:", error);
+        throw new Error("Failed to generate financial report.");
+    }
+}
+
+function parseReport(report) {
+    console.log("Parsing report:", report);
+
+    let summary = '';
+    let categories = {};
+    let tips = '';
+    let totalExpenditure = 'N/A';  // Initialize with a default value
+
+    try {
+        // Extract total expenditure
+        const expenditureMatch = report.match(/\*\*Total Expenditure\*\*:\s*\$([\d,]+\.\d{2})/);
+        if (expenditureMatch) {
+            totalExpenditure = parseFloat(expenditureMatch[1].replace(/,/g, '')).toFixed(2);
+        } else {
+            console.warn("Total Expenditure pattern not found in the report.");
+        }
+
+        // Extract summary
+        const summaryMatch = report.match(/### Summary:([\s\S]*?)(?=\[End of Report\]|$)/i);
+        if (summaryMatch) summary = summaryMatch[1].trim();
+
+        // Extract categories (transactions)
+        const categoriesMatch = report.match(/4\. \*\*Top 5 Transactions by Category\*\*:([\s\S]*?)(?=### Summary:|$)/i);
+        if (categoriesMatch) {
+            const categoriesText = categoriesMatch[1];
+            categories = parseCategories(categoriesText);
+        }
+
+        // Extract tips (we'll use the last paragraph of the summary for this)
+        const tipsMatch = summary.match(/(?:^|\n)([^.\n]+\.[^.\n]+\.)$/);
+        if (tipsMatch) tips = tipsMatch[1].trim();
+
+    } catch (error) {
+        console.error("Error parsing report:", error);
+    }
+
+    const result = { 
+        summary, 
+        categories, 
+        tips,
+        totalExpenditure
+    };
+    console.log("Parsed result:", result);
+    return result;
+}
+
+
+function parseCategories(categoriesText) {
+    const categories = {};
+    const categoryRegex = /\*\*(.*?)\*\*:([\s\S]*?)(?=\*\*|$)/g;
+    let match;
+
+    while ((match = categoryRegex.exec(categoriesText)) !== null) {
+        const categoryName = match[1].trim();
+        const transactions = match[2].trim().split('\n').map(t => {
+            const amountMatch = t.match(/\$([\d,]+(?:\.\d{2})?)/);
+            return amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : 0;
+        });
+        categories[categoryName] = transactions.reduce((sum, value) => sum + value, 0);
+    }
+
+    return categories;
+}
+
+
+
+function generateCategoryTable(categories) {
+    let tableHTML = '<table><tr><th>Category</th><th>Amount</th></tr>';
+    Object.entries(categories).forEach(([category, amount]) => {
+        tableHTML += `<tr><td>${category}</td><td>$${amount.toFixed(2)}</td></tr>`;
+    });
+    tableHTML += '</table>';
+    return tableHTML;
+}
+
+
+function displayResults(results) {
+    summaryDiv.innerHTML = '';
+    chartsDiv.innerHTML = '';
+
+    results.forEach((result, index) => {
+        try {
+            const report = result.report;
+            console.log("Raw report for", result.filename, ":", report);
+
+            const { summary, categories, tips } = parseReport(report);
+
+            console.log("Parsed data:", { summary, categories, tips });
+
+            // Log each category and its amount to ensure accuracy
+            Object.entries(categories).forEach(([category, amount]) => {
+                console.log(`Category: ${category}, Amount: ${amount}`);
+            });
+
+            const totalExpenditure = Object.values(categories).reduce((sum, amount) => sum + amount, 0);
+            console.log("Calculated TOTAL EXPENDITURE:", totalExpenditure);
+
+            if (isNaN(totalExpenditure)) {
+                throw new Error("Total expenditure is not a number.");
+            }
+
+            const creditUtilization = result.creditLimit ? (totalExpenditure / result.creditLimit) * 100 : 0;
+
+            const topExpenses = Object.entries(categories)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5);
+
+            let summaryHTML = `
+                <div class="summary-card">
+                    <div class="summary-header">
+                        <div class="summary-title">Financial Summary for ${result.filename}</div>
+                        <div class="summary-date">${new Date().toLocaleDateString()}</div>
+                    </div>
+                    <div class="summary-content">
+                        <div class="summary-item">
+                            <div class="summary-item-title">Total Expenditure</div>
+                            <div class="summary-item-value">$${totalExpenditure.toFixed(2)}</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-item-title">Credit Limit</div>
+                            <div class="summary-item-value">$${result.creditLimit ? result.creditLimit.toFixed(2) : 'N/A'}</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-item-title">Credit Utilization</div>
+                            <div class="summary-item-value ${creditUtilization > 60 ? 'danger' : creditUtilization > 30 ? 'warning' : ''}">
+                                ${creditUtilization.toFixed(1)}%
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-bar-fill" style="width: ${creditUtilization}%;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="top-expenses">
+                        <h3>Top 5 Expenses</h3>
+                        ${topExpenses.map(([category, amount]) => `
+                            <div class="top-expense-item">
+                                <span class="expense-category">${category}</span>
+                                <span class="expense-amount">$${amount.toFixed(2)}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                <h3>All Expense Categories</h3>
+            `;
+
+            if (Object.keys(categories).length > 0) {
+                summaryHTML += generateCategoryTable(categories);
+            } else {
+                summaryHTML += '<p>No category data available.</p>';
+            }
+
+            if (result.creditLimit && totalExpenditure > 0.6 * result.creditLimit) {
+                summaryHTML += `
+                    <div class="tips">
+                        <h3>Financial Tips</h3>
+                        <p>${tips || 'No tips available.'}</p>
+                    </div>
+                `;
+            }
+
+            summaryDiv.innerHTML += summaryHTML;
+
+            // Create chart for this result
+            createChart(result, categories);
+
+        } catch (error) {
+            console.error("Error displaying results for", result.filename, error);
+            summaryDiv.innerHTML += `<p style="color: red;">Error displaying results for ${result.filename}: ${error.message}</p>`;
+        }
+    });
+}
+
+
+        // New function to create a chart for each result
+        function createChart(result, categories) {
+            const chartContainer = document.createElement('div');
+            chartContainer.classList.add('chart-container');
+            chartsDiv.appendChild(chartContainer);
+
+            const canvas = document.createElement('canvas');
+            chartContainer.appendChild(canvas);
+
+            new Chart(canvas, {
+                type: 'pie',
+                data: {
+                    labels: Object.keys(categories),
+                    datasets: [{
+                        data: Object.values(categories),
+                        backgroundColor: [
+                            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40',
+                            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                        },
+                        title: {
+                            display: true,
+                            text: `Expenses by Category - ${result.filename}`
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
